@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Пазл — Ракета</title>
+
+<style>
+  html,body{
+    margin:0;
+    padding:0;
+    width:100%;
+    height:100%;
+    overflow:hidden;
+    background:#eaf2ff;
+    font-family:Arial, sans-serif;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+  }
+
+  /* 🎯 игровой контейнер */
+  #game{
+    width:1200px;
+    height:800px;
+    position:relative;
+    transform-origin: top left;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+
+  h1{
+    margin:20px 0 10px;
+    font-size:32px;
+  }
+
+  #menu{
+    display:flex;
+    gap:10px;
+    align-items:center;
+    margin-bottom:20px;
+  }
+
+  #wrap{
+    position:relative;
+    width:720px;
+    height:480px;
+    border:3px solid #1f2937;
+    border-radius:12px;
+    background:#cdd7ff;
+    overflow:hidden;
+  }
+
+  #target{
+    position:absolute;
+    inset:0;
+    background-size:100% 100%;
+    opacity:0.12;
+    pointer-events:none;
+  }
+
+  .piece{
+    position:absolute;
+    background-size:300% 300%;
+    border:1px solid #222;
+    border-radius:6px;
+    cursor:grab;
+    touch-action:none;
+    box-shadow:0 4px 10px rgba(0,0,0,.25);
+  }
+
+  #msg{
+    margin-top:20px;
+    font-size:28px;
+    font-weight:bold;
+    color:#16a34a;
+    display:none;
+  }
+</style>
+</head>
+<body>
+
+<div id="game">
+
+  <h1>Пазл — Собери ракету</h1>
+
+  <div id="menu">
+    <label>Сложность:
+      <select id="lvl">
+        <option value="3">3×3</option>
+        <option value="4">4×4</option>
+        <option value="5">5×5</option>
+      </select>
+    </label>
+    <button id="restart">Перемешать</button>
+  </div>
+
+  <div id="wrap">
+    <div id="target"></div>
+  </div>
+
+  <div id="msg">Ура! Ракета собрана 🎉</div>
+
+</div>
+
+<script>
+(() => {
+
+  const BASE_W = 1200;
+  const BASE_H = 800;
+
+  const IMG = "rocket.png";
+  const SNAP = 30;
+
+  const game = document.getElementById("game");
+  const wrap = document.getElementById("wrap");
+  const target = document.getElementById("target");
+  const msg = document.getElementById("msg");
+  const lvlSel = document.getElementById("lvl");
+  const restartBtn = document.getElementById("restart");
+
+  target.style.backgroundImage = `url(${IMG})`;
+
+  let pieces = [];
+  let N = 3;
+  let currentScale = 1;   // ⭐ добавлено
+
+  restartBtn.onclick = init;
+  lvlSel.onchange = init;
+
+  // -----------------------
+  //  🔥 АДАПТИВНОЕ МАСШТАБИРОВАНИЕ
+  // -----------------------
+  function scaleGame(){
+    const sw = window.innerWidth;
+    const sh = window.innerHeight;
+
+    const scale = Math.min(sw / BASE_W, sh / BASE_H);
+    currentScale = scale;       // ⭐ сохраняем масштаб
+
+    game.style.transform = `scale(${scale})`;
+  }
+
+  window.addEventListener("resize", scaleGame);
+  window.addEventListener("load", scaleGame);
+
+  // -----------------------
+  //      СОЗДАНИЕ ПАЗЛА
+  // -----------------------
+  function init(){
+    msg.style.display = "none";
+    pieces.forEach(p=>p.remove());
+    pieces = [];
+
+    N = parseInt(lvlSel.value,10);
+
+    const W = wrap.clientWidth;
+    const H = wrap.clientHeight;
+    const pw = W / N;
+    const ph = H / N;
+
+    let coords = [];
+    const margin = 25;
+    const gap = 10;
+
+    // bottom
+    for(let i=0;i<N;i++){
+      coords.push({
+        x: wrap.offsetLeft + i*(pw+gap),
+        y: wrap.offsetTop + H + margin
+      });
+    }
+
+    // left
+    for(let i=0;i<N;i++){
+      coords.push({
+        x: wrap.offsetLeft - pw - margin,
+        y: wrap.offsetTop + i*(ph+gap)
+      });
+    }
+
+    // right
+    for(let i=0;i<N;i++){
+      coords.push({
+        x: wrap.offsetLeft + W + margin,
+        y: wrap.offsetTop + i*(ph+gap)
+      });
+    }
+
+    coords.sort(()=>Math.random()-0.5);
+
+    let posIndex = 0;
+
+    for(let r=0; r<N; r++){
+      for(let c=0; c<N; c++){
+        const idx = r*N + c;
+        const el = document.createElement("div");
+        el.className = "piece";
+
+        el.dataset.correctX = wrap.offsetLeft + c * pw;
+        el.dataset.correctY = wrap.offsetTop  + r * ph;
+
+        el.style.width = pw + "px";
+        el.style.height = ph + "px";
+
+        el.style.backgroundImage = `url(${IMG})`;
+        el.style.backgroundSize = `${N*100}% ${N*100}%`;
+        el.style.backgroundPosition = `${(c/(N-1))*100}% ${(r/(N-1))*100}%`;
+
+        const pos = coords[posIndex++];
+        el.style.left = pos.x + "px";
+        el.style.top  = pos.y + "px";
+
+        game.appendChild(el);
+        pieces.push(el);
+
+        enableDrag(el);
+      }
+    }
+  }
+
+  // -----------------------
+  //        DRAG
+  // -----------------------
+  function enableDrag(el){
+    let dragging = false;
+    let ox=0, oy=0;
+
+    function down(e){
+      const p = (e.touches ? e.touches[0] : e);
+
+      dragging = true;
+
+      const rect = el.getBoundingClientRect();
+      ox = (p.clientX - rect.left) / currentScale;  // ⭐ компенсируем масштаб
+      oy = (p.clientY - rect.top)  / currentScale;
+
+      el.style.zIndex = 200;
+
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+      window.addEventListener("touchmove", move, {passive:false});
+      window.addEventListener("touchend", up);
+    }
+
+    function move(e){
+      if(!dragging) return;
+      e.preventDefault();
+
+      const p = (e.touches ? e.touches[0] : e);
+
+      const x = (p.clientX / currentScale) - ox;
+      const y = (p.clientY / currentScale) - oy;
+
+      el.style.left = x + "px";
+      el.style.top  = y + "px";
+    }
+
+    function up(){
+      dragging = false;
+
+      snap(el);
+      checkComplete();
+
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", up);
+    }
+
+    el.addEventListener("mousedown", down);
+    el.addEventListener("touchstart", down, {passive:true});
+  }
+
+  // -----------------------
+  //       ПРИЛИПАНИЕ
+  // -----------------------
+  function snap(el){
+    const cx = parseFloat(el.dataset.correctX);
+    const cy = parseFloat(el.dataset.correctY);
+
+    const x = parseFloat(el.style.left);
+    const y = parseFloat(el.style.top);
+
+    if(Math.abs(x - cx) < SNAP && Math.abs(y - cy) < SNAP){
+      el.style.left = cx + "px";
+      el.style.top  = cy + "px";
+      el.dataset.locked = "1";
+    } else {
+      el.dataset.locked = "0";
+    }
+  }
+
+  // -----------------------
+  //      ПРОВЕРКА ПОБЕДЫ
+  // -----------------------
+  function checkComplete(){
+    let ok = 0;
+
+    for(const el of pieces){
+      const cx = parseFloat(el.dataset.correctX);
+      const cy = parseFloat(el.dataset.correctY);
+
+      if(
+        Math.abs(parseFloat(el.style.left) - cx) < 5 &&
+        Math.abs(parseFloat(el.style.top)  - cy) < 5
+      ){
+        ok++;
+      }
+    }
+
+    if(ok === pieces.length){
+      msg.style.display = "block";
+    }
+  }
+
+  init();
+  scaleGame();
+
+})();
+</script>
+
+</body>
+</html>
